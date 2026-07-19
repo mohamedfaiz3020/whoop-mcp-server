@@ -3,6 +3,8 @@ name: Deploy Whoop MCP to Railway
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - ".deploy/**"
   workflow_dispatch: {}
 
 concurrency:
@@ -10,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write # lets the job commit deploy state back to the repo
   actions: write # lets the job persist Railway IDs as repo variables
   issues: write # lets the job file an issue with logs when a deploy fails
 
@@ -32,18 +34,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check required secrets
+        id: gate
+        shell: bash
+        run: |
+          if [ -z "${RAILWAY_API_TOKEN}" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "RAILWAY_API_TOKEN secret is not set yet — skipping deploy." | tee deploy-output.log
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-node@v4
+        if: steps.gate.outputs.ready == 'true'
         with:
           node-version: 20
 
       - name: Install Railway CLI
+        if: steps.gate.outputs.ready == 'true'
         run: npm i -g @railway/cli && railway --version
 
       - name: Provision and deploy to Railway
+        if: steps.gate.outputs.ready == 'true'
         shell: bash
         run: |
           set -o pipefail
           bash scripts/railway-deploy.sh 2>&1 | tee deploy-output.log
+
+      - name: Commit deploy state back to repo
+        if: always() && steps.gate.outputs.ready == 'true'
+        shell: bash
+        run: |
+          mkdir -p .deploy
+          tail -c 20000 deploy-output.log > .deploy/last-run.log 2>/dev/null || echo "no log captured" > .deploy/last-run.log
+          grep -o 'RAILWAY_STATE_JSON=.*' deploy-output.log | tail -1 | sed 's/^RAILWAY_STATE_JSON=//' > .deploy/state.json || true
+          [ -s .deploy/state.json ] || echo '{}' > .deploy/state.json
+          printf '{"run_id":"%s","status":"%s","finished_at":"%s"}\n' "${{ github.run_id }}" "${{ job.status }}" "$(date -u +%FT%TZ)" > .deploy/run.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .deploy
+          git commit -m "ci: deploy state for run ${{ github.run_id }} [skip ci]" || exit 0
+          git pull --rebase origin main || true
+          git push origin HEAD:main || echo "state push failed"
 
       - name: Report failure as issue
         if: failure()

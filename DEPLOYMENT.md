@@ -26,7 +26,11 @@ Actions variables, so re-runs are idempotent.
 | `RAILWAY_API_TOKEN` | Railway account token used by CI to provision/deploy |
 | `WHOOP_CLIENT_ID` | WHOOP developer app client ID |
 | `WHOOP_CLIENT_SECRET` | WHOOP developer app client secret |
-| `ENCRYPTION_SECRET` | Encrypts WHOOP OAuth tokens at rest in SQLite (never rotate casually: stored tokens become unreadable) |
+| `ENCRYPTION_SECRET` | Optional. Encrypts WHOOP OAuth tokens at rest (falls back to `WHOOP_CLIENT_SECRET`). Never rotate casually: stored tokens become unreadable |
+
+The workflow also commits its result to `.deploy/` (state.json, run.json,
+last-run.log) on every run, so deploy status can be read with a plain
+`git pull` — no GitHub API access needed.
 
 ## GitHub Actions variables (written by the pipeline)
 
