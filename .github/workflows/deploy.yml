@@ -1,0 +1,55 @@
+name: Deploy Whoop MCP to Railway
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: railway-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write # lets the job persist Railway IDs as repo variables
+  issues: write # lets the job file an issue with logs when a deploy fails
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      WHOOP_CLIENT_ID: ${{ secrets.WHOOP_CLIENT_ID }}
+      WHOOP_CLIENT_SECRET: ${{ secrets.WHOOP_CLIENT_SECRET }}
+      ENCRYPTION_SECRET: ${{ secrets.ENCRYPTION_SECRET }}
+      PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+      ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+      SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+      APP_DOMAIN: ${{ vars.RAILWAY_APP_DOMAIN }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli && railway --version
+
+      - name: Provision and deploy to Railway
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/railway-deploy.sh 2>&1 | tee deploy-output.log
+
+      - name: Report failure as issue
+        if: failure()
+        shell: bash
+        run: |
+          TAIL=$(tail -c 6000 deploy-output.log 2>/dev/null || echo "no log captured")
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BODY=$(printf 'Workflow run: %s\n\n```\n%s\n```\n' "$RUN_URL" "$TAIL")
+          gh issue create --repo "$REPO" --title "Deploy failed: run ${{ github.run_id }}" --body "$BODY" || echo "could not create issue"
