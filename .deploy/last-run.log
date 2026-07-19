@@ -1,0 +1,26 @@
+== Railway deploy: 2026-07-19T21:33:14Z ==
+NOTE: 'me' query failed (workspace token or scope issue) — attempting to continue
+== First run: provisioning project 'whoop-mcp' ==
+projectId: c2c6cd9f-2332-4902-bd8b-23c19e79f022
+environmentId: 167aaf39-1761-4c10-942d-5860a05f4008
+serviceId: 0975b41f-aac5-4f0b-b4b4-117576802829
+volumeId: 13852977-c6b8-47b3-b275-be9ef97a21c6 (mounted at /data)
+domain: whoop-mcp-server-production-e02c.up.railway.app
+Variables set: DB_PATH, MCP_MODE, PORT, WHOOP_REDIRECT_URI
+Unauthorized. Please check that your RAILWAY_API_TOKEN is valid and has access to the resource you're trying to use.
+Unauthorized. Please check that your RAILWAY_API_TOKEN is valid and has access to the resource you're trying to use.
+railway link failed; dumping help for debugging
+Associate existing project with current directory, may specify projectId as an argument
+
+Usage: railway link [OPTIONS]
+
+Options:
+  -e, --environment <ENVIRONMENT>  Environment to link to
+  -p, --project <PROJECT>          Project to link to
+  -s, --service <SERVICE>          The service to link to
+  -t, --team <TEAM>                The team to link to (deprecated: use --workspace instead)
+  -w, --workspace <WORKSPACE>      The workspace to link to
+      --json                       Output in JSON format
+  -h, --help                       Print help
+  -V, --version                    Print version
+
