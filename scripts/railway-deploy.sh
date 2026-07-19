@@ -32,6 +32,16 @@ req() { # $1 = graphql doc, $2 = variables json (compact)
 
 echo "== Railway deploy: $(date -u +%FT%TZ) =="
 
+# --- State fallback: load IDs from committed state file ----------------------
+STATE_FILE=".deploy/state.json"
+if [ -z "${PROJECT_ID:-}" ] && [ -s "$STATE_FILE" ]; then
+  PROJECT_ID=$(jq -r '.projectId // empty' "$STATE_FILE")
+  ENVIRONMENT_ID=${ENVIRONMENT_ID:-$(jq -r '.environmentId // empty' "$STATE_FILE")}
+  SERVICE_ID=${SERVICE_ID:-$(jq -r '.serviceId // empty' "$STATE_FILE")}
+  APP_DOMAIN=${APP_DOMAIN:-$(jq -r '.domain // empty' "$STATE_FILE")}
+  [ -n "$PROJECT_ID" ] && echo "State loaded from $STATE_FILE (project $PROJECT_ID)"
+fi
+
 # --- 0) Token sanity --------------------------------------------------------
 if ME=$(req 'query { me { name email } }' '{}' 2>/dev/null); then
   echo "Token OK — account: $(echo "$ME" | jq -r '.data.me.name // "?"')"
@@ -98,14 +108,22 @@ req 'mutation($input: VariableCollectionUpsertInput!){ variableCollectionUpsert(
      '{input:{projectId:$p, environmentId:$e, serviceId:$s, skipDeploys:true, variables:$vars}}')" >/dev/null
 echo "Variables set: $(echo "$VARS" | jq -r 'keys | join(", ")')"
 
-# --- 3) Link + upload code ---------------------------------------------------
-railway link --project "$PROJECT_ID" --environment production --service "$SERVICE_NAME" \
-  || railway link -p "$PROJECT_ID" -e production -s "$SERVICE_NAME" \
-  || { echo "railway link failed; dumping help for debugging"; railway link --help || true; exit 1; }
-railway status || true
+# --- 3) Mint a project token and upload code ---------------------------------
+# Workspace tokens work for the GraphQL API but not for `railway link`,
+# so we mint a project-scoped token and hand that to the CLI instead.
+echo "== Minting project deploy token =="
+if ! PT_RESP=$(req 'mutation($input: ProjectTokenCreateInput!){ projectTokenCreate(input:$input) }' \
+  "$(jq -cn --arg p "$PROJECT_ID" --arg e "$ENVIRONMENT_ID" '{input:{projectId:$p, environmentId:$e, name:"ci-deploy"}}')"); then
+  echo "projectTokenCreate failed — introspecting input type:" >&2
+  req 'query { __type(name: "ProjectTokenCreateInput") { inputFields { name type { kind name ofType { name } } } } }' '{}' 2>/dev/null | jq -c '.data.__type.inputFields' >&2 || true
+  exit 1
+fi
+PROJECT_TOKEN=$(echo "$PT_RESP" | jq -r 'if (.data.projectTokenCreate|type)=="object" then (.data.projectTokenCreate.token // .data.projectTokenCreate.value // empty) else .data.projectTokenCreate end')
+[ -n "$PROJECT_TOKEN" ] || { echo "FATAL: empty project token" >&2; exit 1; }
 
 echo "== railway up (build logs follow) =="
-railway up --ci
+env -u RAILWAY_API_TOKEN RAILWAY_TOKEN="$PROJECT_TOKEN" railway up --ci --service "$SERVICE_ID" \
+  || env -u RAILWAY_API_TOKEN RAILWAY_TOKEN="$PROJECT_TOKEN" railway up --ci --service "$SERVICE_NAME"
 
 # --- 4) Wait for deployment success -----------------------------------------
 echo "== Waiting for deployment to become SUCCESS =="
